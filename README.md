@@ -1,92 +1,79 @@
-# qwm-qem — World model latente (JEPA) para mitigação de erros quânticos sob drift
+# qwm-qem — Latent world model (JEPA) for quantum error mitigation under drift
 
-Fase 1 do pré-projeto: tudo em simulador com drift controlado, onde o estado físico verdadeiro
-do dispositivo é conhecido. O world model aprende um latente `z_t` a partir de telemetria de
-calibração e sondas baratas, prevê `z_{t+1}` condicionado à ação (executar ou recalibrar) e usa
-`z_t` para corrigir valores esperados.
+Phase 1 of the preliminary project: everything runs in a simulator with controlled drift, where the device’s true physical state is known. The world model learns a latent state z_t from calibration telemetry and low-cost probes, predicts z_{t+1} conditioned on the action (run or recalibrate), and uses z_t to correct expected values.
 
 ## Estrutura
 
 ```
 qwm/
-  config.py      configurações (dispositivo, dados, modelo)
-  device.py      processo de drift do estado oculto θ_t (T1/T2 + TLS, erro coerente, leitura, p2)
-  noise.py       θ_t -> NoiseModel do Qiskit Aer
-  circuits.py    pool de circuitos-alvo (Trotter TFIM, camadas rasas), sondas, folding, correção de leitura
-  dataset.py     gera a trajetória (estado, telemetria, sondas, ações, execuções em 3 escalas de ZNE, gêmeo)
-  features.py    tabelas de mitigação e observações por passo
-  model.py       encoder, preditor, cabeça de mitigação, SIGReg
-  train.py       treino do world model (predição latente + SIGReg + mitigação)
-  baselines.py   bruto, leitura, ZNE linear/Richardson, gêmeo digital, ML-QEM estático e online
-  evaluate.py    métricas de H1 (MAE), H2 (sonda linear), H4 (AUROC de TLS)
-  stats.py       Wilcoxon pareado, Holm, IC bootstrap
+  config.py      settings (device, data, model)
+  device.py      hidden-state drift process θ_t (T1/T2 + TLS, coherent error, readout, p2)
+  noise.py       θ_t -> Qiskit Aer NoiseModel
+  circuits.py    target-circuit pool (Trotter TFIM, shallow layers), probes, folding, readout correction
+  dataset.py     generates the trajectory (state, telemetry, probes, actions, runs at 3 ZNE scales, twin)
+  features.py    mitigation tables and per-step observations
+  model.py       encoder, predictor, mitigation head, SIGReg
+  train.py       world model training (latent prediction + SIGReg + mitigation)
+  baselines.py   raw, readout, linear/Richardson ZNE, digital twin, static and online ML-QEM
+  evaluate.py    H1 (MAE), H2 (linear probe), H4 (TLS AUROC) metrics
+  stats.py       paired Wilcoxon, Holm, bootstrap CI
 scripts/
-  run_pipeline.py  uma semente, ponta a ponta
-  run_seeds.py     várias sementes em paralelo + teste estatístico
+  run_pipeline.py  one seed, end to end
+  run_seeds.py     multiple seeds in parallel + statistical test
 ```
 
-## Como rodar
+## How to run
 
 ```bash
 pip install -r requirements.txt
-# teste rápido (~2 min de geração em CPU)
+# quick test (~2 min of CPU data generation)
 python scripts/run_pipeline.py --seed 0 --steps 240 --epochs 8 --out runs_smoke
-# uma semente completa: 30 dias, 1440 passos (~10 min de geração em CPU)
+# full run for one seed: 30 days, 1440 steps (~10 min of CPU data generation)
 python scripts/run_pipeline.py --seed 0 --out runs
-# protocolo completo: 15 sementes, Wilcoxon + Holm
+# full protocol: 15 seeds, Wilcoxon + Holm
 python scripts/run_seeds.py --seeds 15 --jobs 4 --out runs
-# estresse: drift 2x mais rápido
+# stress test: 2x faster drift
 python scripts/run_seeds.py --seeds 15 --jobs 4 --out runs_drift2 --extra "--drift-scale 2"
 ```
 
-A geração de dados é CPU (Qiskit Aer, matriz densidade, 5 qubits) e é cacheada em
-`data_seed*.npz`; o treino usa GPU se houver. No Colab, o gargalo é a geração: use `--jobs`
-igual ao número de núcleos.
+Data generation runs on the CPU (Qiskit Aer, density matrix, 5 qubits) and is cached in
+data_seed*.npz; training uses the GPU if available. In Colab, data generation is the bottleneck: set --jobs to the number of cores.
 
-## Decisões de modelagem (para revisar)
+## Modeling decisions (for review)
 
-- **Dinâmica exógena.** Executar circuitos não muda o drift; só `recalibrar` muda o estado, e ela
-  zera erro coerente e deriva de leitura, mas não restaura T1/T2.
-- **Telemetria é cega ao erro coerente pós-calibração.** A calibração mede o resíduo logo após
-  calibrar; o que acumula depois só aparece nas sondas (`overrot`, `cx_echo`). Isso é o que dá
-  espaço para o world model superar o ML-QEM com telemetria.
-- **Mitigação como resíduo** sobre o valor com correção de leitura: `ŷ = y_ro + M(z, x, ỹ)`.
-- **Valor ideal** disponível porque o pool é classicamente simulável (como em Liao et al. 2024).
-- **Gêmeo digital** = NoiseModel montado da última telemetria; mitigação aditiva
-  `ŷ = ỹ − (y_gêmeo − y_ideal)`.
-- **ZNE** usa os valores com correção de leitura (folding não amplifica erro de leitura).
-- **ML-QEM estático** treina em treino+validação; o world model usa a validação para escolher a época.
-- **SIGReg** é implementação própria a partir do artigo do LeJEPA; o pacote oficial é `lejepa`.
+- Exogenous dynamics. Running circuits does not change the drift; only recalibrate changes the state. It resets coherent error and readout drift, but does not restore T1/T2.
+- Telemetry is blind to post-calibration coherent error. Calibration measures the residual immediately after recalibration; the error that accumulates afterward is only visible in the probes (overrot, cx_echo). This gives the world model room to outperform ML-QEM with telemetry.
+- Mitigation as a residual over the readout-corrected value: ŷ = y_ro + M(z, x, ỹ).
+- Ideal value is available because the pool can be simulated classically (as in Liao et al. 2024).
+- Digital twin = NoiseModel built from the latest telemetry; additive mitigation ŷ = ỹ − (y_twin − y_ideal).
+- ZNE uses readout-corrected values (folding does not amplify readout error).
+- Static ML-QEM trains on the training and validation sets; the world model uses the validation set to select the epoch.
+- SIGReg is a custom implementation based on the LeJEPA paper; the official package is lejepa.
 
-## Resultado preliminar (semente 0, 30 dias, configuração padrão)
+## Preliminary result (seed 0, 30 days, default configuration)
 
-| Método | MAE teste | Shots |
+| Method | Test MAE | Shots |
 | --- | --- | --- |
-| ML-QEM RF (telemetria) | 0.0049 | ×1 |
-| ML-QEM online | 0.0093 | ×1 |
-| Gêmeo digital | 0.0110 | ×1 |
-| World model completo | 0.0165 | ×1 |
-| ZNE linear (com correção de leitura) | 0.0174 | ×2 |
-| World model sem preditor | 0.0245 | ×1 |
-| Bruto | 0.0519 | ×1 |
+| ML-QEM RF (telemetry) | 0.0049 | ×1 |
+| Online ML-QEM | 0.0093 | ×1 |
+| Digital twin | 0.0110 | ×1 |
+| Full world model | 0.0165 | ×1 |
+| Linear ZNE (with readout correction) | 0.0174 | ×2 |
+| World model without predictor | 0.0245 | ×1 |
+| Raw | 0.0519 | ×1 |
 
-Leitura: o preditor latente melhora o world model (0.0245 → 0.0165) e o latente supera as
-observações brutas na sonda linear (nRMSE 1.11 vs 1.64), mas o RF com telemetria vence.
-Acrescentar sondas ou o próprio z ao RF não melhorou (0.0054 e 0.0056). Diagnóstico: o
-benchmark ainda não estressa o drift. O pool de 40 circuitos é o mesmo no treino e no teste,
-então uma correção por circuito resolve quase tudo. Próximos ajustes do desenho experimental:
-circuitos inéditos no teste, varredura de `--drift-scale` e calibração menos frequente.
+Interpretation: the latent predictor improves the world model (0.0245 → 0.0165), and the latent state outperforms the raw observations on the linear probe (nRMSE 1.11 vs. 1.64), but the RF with telemetry performs best. Adding probes or z itself to the RF did not help (0.0054 and 0.0056). Diagnosis: the benchmark does not yet stress the drift. The same pool of 40 circuits is used for training and testing, so a per-circuit correction solves almost everything. Next experimental design adjustments: unseen circuits in the test set, sweep --drift-scale, and calibrate less frequently.
 
-## Pendências conhecidas
+## Known outstanding items
 
-- [ ] split com circuitos inéditos no teste (generalização de circuito, não só de tempo)
-- [ ] varredura da taxa de drift (`--drift-scale` 1, 2, 4) e do intervalo de calibração
-- [ ] investigar o ML-QEM MLP do sklearn (MAE 0.13, provável problema de ajuste)
-- [ ] cabeça de mitigação mais regularizada ou baseada em árvores sobre z
+- [ ] Split with unseen circuits in the test set (circuit generalization, not just temporal generalization)
+- [ ] Sweep drift rate (--drift-scale 1, 2, 4) and calibration interval
+- [ ] Investigate the sklearn ML-QEM MLP (MAE 0.13, likely a fitting issue)
+- [ ] More strongly regularized or tree-based mitigation head over z
 
-- [ ] H3: planejamento no latente para escolher a configuração de mitigação sob orçamento de shots
-- [ ] crosstalk (ZZ espúrio entre vizinhos ociosos) no simulador
-- [ ] testes fora da distribuição com outras formas de drift (degraus, senoides)
-- [ ] poucos eventos TLS por trajetória de teste (~3): H4 só faz sentido agregando sementes
-- [ ] world model ainda sobreajusta em trajetórias curtas: regularizar a cabeça de mitigação
-- [ ] validação com histórico real de calibração da IBM
+- [ ] H3: latent-space planning to choose the mitigation configuration under a shot budget
+- [ ] Crosstalk (spurious ZZ coupling between idle neighbors) in the simulator
+- [ ] Out-of-distribution tests with other drift patterns (steps, sinusoids)
+- [ ] Few TLS events per test trajectory (~3): H4 only makes sense when aggregating across seeds
+- [ ] World model still overfits on short trajectories: regularize the mitigation head
+- [ ] Validation against real IBM calibration history
