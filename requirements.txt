@@ -1,0 +1,6 @@
+qiskit>=2.0
+qiskit-aer>=0.17
+torch>=2.3
+scikit-learn>=1.5
+scipy>=1.11
+numpy>=1.26
