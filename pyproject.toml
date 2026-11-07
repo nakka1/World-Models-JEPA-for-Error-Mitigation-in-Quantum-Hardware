@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qwm-qem"
+version = "0.1.0"
+description = "Latent world models (JEPA) for quantum error mitigation under hardware drift"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Alexandre O. S. Santos" }]
+dependencies = [
+    "qiskit>=2.0",
+    "qiskit-aer>=0.17",
+    "torch>=2.3",
+    "scikit-learn>=1.5",
+    "scipy>=1.11",
+    "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.setuptools]
+packages = ["qwm"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

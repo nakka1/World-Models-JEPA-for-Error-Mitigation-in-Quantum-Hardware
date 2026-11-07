@@ -1,5 +1,4 @@
-"""Constrói o NoiseModel do Qiskit Aer a partir de um DeviceState."""
-import numpy as np
+"""Builds a Qiskit Aer NoiseModel from a DeviceState."""
 from qiskit.circuit.library import RXGate, RZZGate
 from qiskit_aer.noise import (NoiseModel, ReadoutError, coherent_unitary_error,
                               depolarizing_error, thermal_relaxation_error)
@@ -33,7 +32,7 @@ def build_noise_model(state: DeviceState, cfg: DeviceConfig) -> NoiseModel:
             tr[q] = thermal_relaxation_error(t1, t2, cfg.t_cx)
         coh = coherent_unitary_error(RZZGate(float(state.eps2[e])).to_matrix())
         dep = depolarizing_error(float(state.p2[e]), 2)
-        # QuantumError em [a, b]: o qubit 0 do erro é 'a'; tensor coloca 'other' no qubit 0
+        # QuantumError on [a, b]: qubit 0 of the error is 'a'; tensor puts 'other' on qubit 0
         err_ab = coh.compose(tr[b].tensor(tr[a])).compose(dep)
         err_ba = coh.compose(tr[a].tensor(tr[b])).compose(dep)
         nm.add_quantum_error(err_ab, "cx", [a, b])

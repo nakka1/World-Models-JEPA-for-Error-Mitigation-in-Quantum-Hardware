@@ -1,5 +1,5 @@
-"""World model JEPA do estado de ruído: encoder de janela, preditor condicionado à ação,
-SIGReg e cabeça de mitigação."""
+"""JEPA world model of the device noise state: window encoder, action-conditioned predictor,
+SIGReg and mitigation head."""
 import torch
 import torch.nn as nn
 
@@ -7,9 +7,9 @@ import torch.nn as nn
 def sigreg(z: torch.Tensor, num_slices: int = 256, t_max: float = 3.0, n_t: int = 17) -> torch.Tensor:
     """Sketched Isotropic Gaussian Regularization (LeJEPA, Balestriero & LeCun 2025).
 
-    Projeta z em direções aleatórias e compara a função característica empírica de cada
-    projeção com a de N(0, 1) (estatística de Epps-Pulley com janela gaussiana).
-    Implementação própria a partir da descrição do artigo; o pacote oficial é `lejepa`.
+    Projects z onto random directions and compares the empirical characteristic function of
+    each projection with that of N(0, 1) (Epps-Pulley statistic with a Gaussian window).
+    Own implementation from the paper's description; the official package is `lejepa`.
     """
     N, D = z.shape
     A = torch.randn(D, num_slices, device=z.device, dtype=z.dtype)
@@ -39,7 +39,7 @@ class NoiseWorldModel(nn.Module):
         self.window = window
         self.encoder = mlp(window * (obs_dim + 1), hidden, latent_dim)
         self.predictor = mlp(latent_dim + 1, hidden, latent_dim)
-        # cabeça de mitigação: z, features do circuito, observável (one-hot), valores ruidosos
+        # mitigation head: z, circuit features, observable (one-hot), noisy values
         self.mitigation = mlp(latent_dim + cfeat_dim + 2 + 2, hidden, 1)
 
     def encode(self, obs_win: torch.Tensor, act_win: torch.Tensor) -> torch.Tensor:
@@ -51,13 +51,13 @@ class NoiseWorldModel(nn.Module):
         return self.predictor(torch.cat([z, a.unsqueeze(-1)], dim=-1))
 
     def mitigate(self, z, cfeat, obs_onehot, y_raw, y_ro) -> torch.Tensor:
-        """Devolve o resíduo r tal que y_hat = y_ro + r."""
+        """Returns the residual r such that y_hat = y_ro + r."""
         x = torch.cat([z, cfeat, obs_onehot, y_raw.unsqueeze(-1), y_ro.unsqueeze(-1)], dim=-1)
         return self.mitigation(x).squeeze(-1)
 
 
 def effective_rank(z: torch.Tensor) -> float:
-    """Posto efetivo (entropia dos valores singulares): monitora colapso."""
+    """Effective rank (entropy of the singular values): monitors representation collapse."""
     s = torch.linalg.svdvals(z - z.mean(0))
     p = s / s.sum()
     return float(torch.exp(-(p * torch.log(p + 1e-12)).sum()))

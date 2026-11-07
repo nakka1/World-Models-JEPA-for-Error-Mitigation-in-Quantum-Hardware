@@ -1,4 +1,4 @@
-"""Treino do world model (JEPA + SIGReg + cabeça de mitigação)."""
+"""World model training (JEPA + SIGReg + mitigation head)."""
 import copy
 import numpy as np
 import torch
@@ -10,7 +10,7 @@ from .model import NoiseWorldModel, effective_rank, sigreg
 
 
 class WMData:
-    """Tensores prontos: observações por passo, ações e amostras de mitigação."""
+    """Ready-to-use tensors: per-step observations, actions and mitigation samples."""
 
     def __init__(self, obs: np.ndarray, action: np.ndarray, table: Table, window: int,
                  train_steps: np.ndarray, device: str):
@@ -18,7 +18,7 @@ class WMData:
         self.dev = device
         self.obs_std = Standardizer().fit(obs[train_steps])
         self.cf_std = Standardizer().fit(table.cfeat[np.isin(table.t, train_steps)])
-        pad = np.repeat(obs[:1], window - 1, axis=0)                 # preenche o início da trajetória
+        pad = np.repeat(obs[:1], window - 1, axis=0)                 # pads the start of the trajectory
         self.obs = torch.tensor(self.obs_std(np.concatenate([pad, obs])), dtype=torch.float32, device=device)
         self.act = torch.tensor(np.concatenate([np.zeros(window - 1), action]), dtype=torch.float32, device=device)
         self.T = len(obs)
@@ -30,7 +30,7 @@ class WMData:
         self.y_raw, self.y_ro, self.y_ideal = f(table.y_raw), f(table.y_ro[:, 0]), f(table.y_ideal)
 
     def windows(self, t: torch.Tensor):
-        """Janela de observações que termina no passo t (já deslocada pelo padding)."""
+        """Observation window ending at step t (already shifted by the padding)."""
         idx = t.unsqueeze(1) + torch.arange(self.W, device=self.dev).unsqueeze(0)
         return self.obs[idx], self.act[idx]
 
@@ -49,7 +49,7 @@ def losses(model, data: WMData, rows: torch.Tensor, cfg: ModelConfig, last_step:
     r_hat = model.mitigate(z, data.cfeat[rows], data.obs_oh[rows], data.y_raw[rows], data.y_ro[rows])
     out["mit"] = F.mse_loss(r_hat, data.y_ideal[rows] - data.y_ro[rows])
     if cfg.use_predictor:
-        ok = t < last_step                                   # o alvo t+1 precisa estar no mesmo split
+        ok = t < last_step                                   # the t+1 target must lie in the same split
         if ok.any():
             t1 = t[ok] + 1
             z1 = model.encode(*data.windows(t1))
@@ -83,7 +83,7 @@ def encode_steps(model, data: WMData, steps: np.ndarray) -> np.ndarray:
 
 @torch.no_grad()
 def prediction_error(model, data: WMData, steps: np.ndarray) -> np.ndarray:
-    """||P(z_{t-1}, a_{t-1}) - z_t||^2 para cada t em steps (t >= 1)."""
+    """||P(z_{t-1}, a_{t-1}) - z_t||^2 for each t in steps (t >= 1)."""
     model.eval()
     t = torch.tensor(steps, device=data.dev)
     z_prev = model.encode(*data.windows(t - 1))
@@ -120,6 +120,6 @@ def train_world_model(data: WMData, cfg: ModelConfig, train_rows, val_rows, trai
         if ep % 10 == 0 or ep == cfg.epochs - 1:
             z = model.encode(*data.windows(data.t[torch.tensor(train_rows[:2048], device=data.dev)]))
             log(f"    ep {ep:3d}  val MAE {val_mae:.4f}  " + "  ".join(f"{k} {v / len(perm):.4f}" for k, v in agg.items())
-                + f"  posto efetivo {effective_rank(z):.1f}")
+                + f"  effective rank {effective_rank(z):.1f}")
     model.load_state_dict(best_state)
     return model, hist

@@ -1,5 +1,5 @@
-"""Transforma a trajetória gerada em tabelas: amostras de mitigação (t, circuito, observável)
-e observações por passo para o world model."""
+"""Turns a generated trajectory into tables: mitigation samples (t, circuit, observable)
+and per-step observations for the world model."""
 from dataclasses import dataclass
 import numpy as np
 
@@ -8,14 +8,14 @@ from .circuits import OBS_TYPES, aggregate, readout_correct
 
 @dataclass
 class Table:
-    t: np.ndarray          # passo da amostra
-    circ: np.ndarray       # índice no pool
-    obs: np.ndarray        # 0 = <Z>médio, 1 = <ZZ>médio
+    t: np.ndarray          # time step of the sample
+    circ: np.ndarray       # index in the circuit pool
+    obs: np.ndarray        # 0 = mean <Z>, 1 = mean <ZZ>
     y_ideal: np.ndarray
-    y_raw: np.ndarray      # escala 1, sem correção
-    y_ro: np.ndarray       # [N, n_escalas], corrigido pela leitura da telemetria
-    y_twin: np.ndarray     # previsão ruidosa do gêmeo digital
-    cfeat: np.ndarray      # features do circuito
+    y_raw: np.ndarray      # scale 1, uncorrected
+    y_ro: np.ndarray       # [N, n_scales], readout-corrected with the telemetry
+    y_twin: np.ndarray     # noisy prediction of the digital twin
+    cfeat: np.ndarray      # circuit features
 
     def subset(self, mask):
         return Table(*(getattr(self, f)[mask] for f in self.__dataclass_fields__))
@@ -53,7 +53,7 @@ def build_table(data: dict) -> Table:
 
 
 def step_observations(data: dict, use_probes: bool = True) -> np.ndarray:
-    """x_t = [telemetria (T1, T2 em log), idade desde a calibração, sondas]."""
+    """x_t = [telemetry (T1, T2 in log scale), time since calibration, probes]."""
     n = int(data["n_qubits"])
     tele = data["tele"].copy()
     for q in range(n):

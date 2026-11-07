@@ -1,10 +1,10 @@
-"""Protocolo estatístico: Wilcoxon pareado por semente, correção de Holm, IC bootstrap."""
+"""Statistical protocol: paired Wilcoxon test across seeds, Holm correction, bootstrap CI."""
 import numpy as np
 from scipy.stats import wilcoxon
 
 
 def holm(pvals: dict) -> dict:
-    """Correção de Holm-Bonferroni (step-down); devolve p ajustados, monotônicos."""
+    """Holm-Bonferroni correction (step-down); returns monotone adjusted p-values."""
     items = sorted(pvals.items(), key=lambda kv: kv[1])
     m = len(items)
     adj, running = {}, 0.0
@@ -22,8 +22,8 @@ def bootstrap_ci(x, n_boot=10_000, alpha=0.05, seed=0):
 
 
 def compare(per_seed: dict, ours: str, alternative: str = "less") -> dict:
-    """per_seed[método] = array de MAE por semente (mesma ordem de sementes).
-    Testa H1 direcional: MAE(ours) < MAE(baseline)."""
+    """per_seed[method] = array of per-seed MAE (same seed order for every method).
+    Tests the directional H1: MAE(ours) < MAE(baseline)."""
     a = np.asarray(per_seed[ours])
     raw_p, rows = {}, {}
     for name, b in per_seed.items():
@@ -34,9 +34,9 @@ def compare(per_seed: dict, ours: str, alternative: str = "less") -> dict:
         raw_p[name] = p
         lo, hi = bootstrap_ci(d)
         n_pos, n_neg = int((d > 0).sum()), int((d < 0).sum())
-        rows[name] = {"diferenca_media": float(d.mean()), "ic95": [lo, hi], "p": p,
-                      # (sementes em que o nosso venceu − em que perdeu) / total
-                      "saldo_de_sinais": (n_neg - n_pos) / max(1, len(d))}
+        rows[name] = {"mean_difference": float(d.mean()), "ci95": [lo, hi], "p": p,
+                      # (seeds where ours won − seeds where it lost) / total
+                      "sign_balance": (n_neg - n_pos) / max(1, len(d))}
     for name, p in holm(raw_p).items():
         rows[name]["p_holm"] = p
     return rows

@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+.env
+
+# generated data and run outputs (large; regenerate with the scripts)
+*.npz
+/runs*/
+/sweep*/

@@ -1,4 +1,4 @@
-"""Circuitos-alvo (pool fixo), sondas baratas, folding para ZNE e observáveis."""
+"""Target circuits (fixed pool), cheap probe circuits, ZNE folding and observables."""
 import numpy as np
 from qiskit import QuantumCircuit, transpile
 from qiskit.quantum_info import SparsePauliOp, Statevector
@@ -49,7 +49,7 @@ def observables(n):
 
 
 def build_pool(n, size, max_trotter, rng):
-    """Pool fixo de circuitos classicamente simuláveis, com valores ideais por statevector."""
+    """Fixed pool of classically simulable circuits, with ideal values from the statevector."""
     obs = observables(n)
     pool = []
     for i in range(size):
@@ -72,7 +72,7 @@ def build_pool(n, size, max_trotter, rng):
 
 
 def fold(qc: QuantumCircuit, scale: int) -> QuantumCircuit:
-    """Folding global U (U^dag U)^k, escala = 2k + 1."""
+    """Global folding U (U^dag U)^k, scale = 2k + 1."""
     assert scale % 2 == 1
     out = qc.copy()
     for _ in range((scale - 1) // 2):
@@ -87,7 +87,7 @@ def with_measure(qc: QuantumCircuit) -> QuantumCircuit:
 
 
 def local_expectations(counts, n):
-    """Vetor [<Z_0>..<Z_{n-1}>, <Z_0Z_1>..<Z_{n-2}Z_{n-1}>]. Bitstrings do Qiskit: qubit 0 à direita."""
+    """Vector [<Z_0>..<Z_{n-1}>, <Z_0Z_1>..<Z_{n-2}Z_{n-1}>]. Qiskit bitstrings: qubit 0 is rightmost."""
     shots = sum(counts.values())
     zi = np.zeros(n)
     zz = np.zeros(n - 1)
@@ -100,14 +100,14 @@ def local_expectations(counts, n):
 
 
 def aggregate(local, n):
-    """Do vetor local para (<Z>médio, <ZZ>médio); funciona em arrays com última dimensão 2n-1."""
+    """From the local vector to (mean <Z>, mean <ZZ>); works on arrays whose last dimension is 2n-1."""
     local = np.asarray(local)
     return np.stack([local[..., :n].mean(-1), local[..., n:].mean(-1)], axis=-1)
 
 
 def readout_correct(local, p01, p10, n):
-    """Inverte o erro de leitura independente por qubit sobre <Z_i> e <Z_iZ_{i+1}>.
-    Z_med = a Z + b, com a = 1 - p01 - p10, b = p10 - p01 (por qubit)."""
+    """Inverts independent per-qubit readout error on <Z_i> and <Z_iZ_{i+1}>.
+    Z_measured = a Z + b, with a = 1 - p01 - p10, b = p10 - p01 (per qubit)."""
     local = np.asarray(local, dtype=float)
     a = 1.0 - p01 - p10
     b = p10 - p01
@@ -139,7 +139,7 @@ def _h(qc, q):
 
 
 def probe_circuits(n, n_idle=20, n_sx=16):
-    """Sondas baratas, montadas direto na base (sem transpilar, para não remover os 'id')."""
+    """Cheap probe circuits, built directly in the basis (no transpilation, so the 'id' gates are kept)."""
     probes = {}
     qc = QuantumCircuit(n); qc.measure_all(); probes["ro0"] = qc
     qc = QuantumCircuit(n); qc.x(range(n)); qc.measure_all(); probes["ro1"] = qc

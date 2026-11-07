@@ -1,8 +1,8 @@
-"""Gera uma trajetória do dispositivo com drift: estado verdadeiro, telemetria, sondas,
-ações e execuções dos circuitos-alvo (escalas de ZNE + estimativa do gêmeo digital).
+"""Generates a drifting-device trajectory: true state, telemetry, probes, actions and
+target-circuit executions (ZNE scales + digital-twin estimate).
 
-Valores esperados são guardados no formato local (<Z_i> e <Z_iZ_{i+1}>), para permitir correção
-de leitura; os observáveis-alvo (<Z>médio, <ZZ>médio) são agregados depois.
+Expectation values are stored in local form (<Z_i> and <Z_iZ_{i+1}>) so that readout correction
+can be applied later; the target observables (mean <Z>, mean <ZZ>) are aggregated afterwards.
 """
 import time
 import numpy as np
@@ -21,7 +21,7 @@ def _run(sim, circuits, noise_model, shots, seed):
 
 
 def build_noise_model_from_vector(v, cfg: ExperimentConfig):
-    """Gêmeo digital por calibração: NoiseModel a partir da última telemetria."""
+    """Calibration-based digital twin: NoiseModel built from the latest telemetry."""
     n = cfg.device.n_qubits
     st = DeviceState.from_vector(np.asarray(v, dtype=float), n)
     st.T1 = np.clip(st.T1, 1.0, None)
@@ -47,7 +47,7 @@ def generate(cfg: ExperimentConfig, verbose: bool = True) -> dict:
     probe_list = [probes[k] for k in probe_names]
 
     def twin_table(tele_vec, seed):
-        """Gêmeo: roda o pool inteiro uma vez por calibração (o modelo só muda quando calibra)."""
+        """Twin: runs the whole pool once per calibration (the model only changes when calibrating)."""
         nm_twin = build_noise_model_from_vector(tele_vec, cfg)
         cnt = _run(sim, [folded[(i, 1)] for i in range(d.pool_size)], nm_twin, d.shots_twin, seed)
         return np.stack([local_expectations(c, n) for c in cnt])
@@ -65,8 +65,8 @@ def generate(cfg: ExperimentConfig, verbose: bool = True) -> dict:
         "probe": np.zeros((T, len(probe_names) * n)), "action": np.zeros(T, dtype=np.int64),
         "tls_onset": np.zeros(T, dtype=bool), "tls_depth": np.zeros((T, n)),
         "circ": np.zeros((T, S), dtype=np.int64),
-        "loc_noisy": np.zeros((T, S, len(scales), L)),   # dispositivo verdadeiro, por escala de ZNE
-        "loc_twin": np.zeros((T, S, L)),                 # gêmeo digital (última calibração)
+        "loc_noisy": np.zeros((T, S, len(scales), L)),   # true device, per ZNE scale
+        "loc_twin": np.zeros((T, S, L)),                 # digital twin (latest calibration)
     }
     t0 = time.time()
     for t in range(T):
@@ -91,7 +91,8 @@ def generate(cfg: ExperimentConfig, verbose: bool = True) -> dict:
             out["loc_twin"][t, j] = twin_tab[i]
 
         since_cal += 1
-        recal = since_cal >= dc.calib_every_steps or rng.random() < dc.extra_calib_prob
+        extra_p = dc.extra_calib_prob if dc.extra_calib_prob is not None else 1.0 / (4 * dc.calib_every_steps)
+        recal = since_cal >= dc.calib_every_steps or rng.random() < extra_p
         out["action"][t] = int(recal)
         state = proc.step(recalibrate=recal)
         if recal:
@@ -99,7 +100,7 @@ def generate(cfg: ExperimentConfig, verbose: bool = True) -> dict:
             tele = measure_telemetry(state, dc, rng)
             twin_tab = twin_table(tele, seed_t + 2)
         if verbose and (t + 1) % max(1, T // 10) == 0:
-            print(f"  passo {t + 1}/{T}  ({time.time() - t0:.0f}s)", flush=True)
+            print(f"  step {t + 1}/{T}  ({time.time() - t0:.0f}s)", flush=True)
 
     out["pool_feats"] = np.stack([c["feats"] for c in pool])
     out["pool_ideal"] = np.array([[c["ideal"][k] for k in OBS_TYPES] for c in pool])
@@ -107,6 +108,13 @@ def generate(cfg: ExperimentConfig, verbose: bool = True) -> dict:
     out["probe_names"] = np.array(probe_names)
     out["n_qubits"] = np.array(n)
     return out
+
+
+def unseen_circuits(cfg: ExperimentConfig) -> np.ndarray:
+    """Unseen circuits: the pool alternates families by parity, so i % 8 in {0, 1}
+    selects half Trotter circuits and half shallow random layers."""
+    i = np.arange(cfg.data.pool_size)
+    return i[(i % cfg.data.unseen_mod) < 2]
 
 
 def split_indices(cfg: ExperimentConfig, T: int = None):
